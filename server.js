@@ -7,14 +7,13 @@ dotenv.config();
 const app = express();
 app.use(express.json());
 
-const SHOP = process.env.SHOPIFY_SHOP; // myshopify.com domain (without https://)
+const SHOP = process.env.SHOPIFY_SHOP;
 const TOKEN = process.env.SHOPIFY_ADMIN_TOKEN;
-const VARIANT_POOL = (process.env.CUSTOM_VARIANT_IDS || '')
-  .split(',')
-  .map(s => s.trim())
-  .filter(Boolean)
-  .map(id => id.replace(/\D/g, '')); // ensure numeric ID strings
 
+// Hard-code your single variant ID here (replace with your real variant ID)
+const SINGLE_VARIANT_ID = '7447281434758';
+
+// ---- Price calculation ----
 function computePrice(lengthM) {
   if (isNaN(lengthM) || lengthM <= 0) return { ok: false, error: 'Invalid length' };
   if (lengthM < 5.5 || lengthM > 15) return { ok: false, error: 'Out of supported range' };
@@ -34,14 +33,7 @@ function computePrice(lengthM) {
   return { ok: true, price: Number(price.toFixed(2)) };
 }
 
-let rrIndex = 0;
-function pickVariantId() {
-  if (!VARIANT_POOL.length) throw new Error('No variant IDs in pool');
-  const id = VARIANT_POOL[rrIndex % VARIANT_POOL.length];
-  rrIndex++;
-  return id;
-}
-
+// ---- Allowlist CORS ----
 app.use((req, res, next) => {
   const origin = req.headers.origin || '';
   const allowed = [
@@ -59,11 +51,13 @@ app.use((req, res, next) => {
   next();
 });
 
+// ---- API endpoint ----
 app.post('/api/custom-price', async (req, res) => {
   try {
     const { length_m, feet, inches } = req.body || {};
     let lengthM = Number(length_m);
 
+    // If metric not provided, try imperial
     if ((!lengthM || isNaN(lengthM)) && (feet != null || inches != null)) {
       const f = Number(feet) || 0;
       const i = Number(inches) || 0;
@@ -75,18 +69,17 @@ app.post('/api/custom-price', async (req, res) => {
       return res.status(400).json({ error: result.error });
     }
 
-    const variantId = pickVariantId();
     const newPrice = result.price.toFixed(2);
 
-    // Update variant price
-    const url = `https://${SHOP}/admin/api/2024-10/variants/${variantId}.json`;
+    // Update Shopify product's single variant price
+    const url = `https://${SHOP}/admin/api/2024-10/variants/${SINGLE_VARIANT_ID}.json`;
     const apiRes = await fetch(url, {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
         'X-Shopify-Access-Token': TOKEN
       },
-      body: JSON.stringify({ variant: { id: Number(variantId), price: newPrice } })
+      body: JSON.stringify({ variant: { id: Number(SINGLE_VARIANT_ID), price: newPrice } })
     });
 
     if (!apiRes.ok) {
@@ -96,7 +89,7 @@ app.post('/api/custom-price', async (req, res) => {
     }
 
     return res.json({
-      variantId: Number(variantId),
+      variantId: Number(SINGLE_VARIANT_ID),
       price: Number(newPrice),
       length_m: Number(lengthM.toFixed(3))
     });
