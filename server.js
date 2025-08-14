@@ -2,15 +2,19 @@ import express from 'express';
 import fetch from 'node-fetch';
 import dotenv from 'dotenv';
 
-const app = express();
-app.use(express.json());
 dotenv.config();
 
-const SHOP = process.env.SHOPIFY_SHOP;
-const TOKEN = process.env.SHOPIFY_ADMIN_TOKEN; // Admin API access token
-const VARIANT_POOL = (process.env.CUSTOM_VARIANT_IDS || '').split(',').map(s => s.trim()).filter(Boolean);
+const app = express();
+app.use(express.json());
 
-// ---- Pricing logic (mirror your theme rules) ----
+const SHOP = process.env.SHOPIFY_SHOP; // myshopify.com domain (without https://)
+const TOKEN = process.env.SHOPIFY_ADMIN_TOKEN;
+const VARIANT_POOL = (process.env.CUSTOM_VARIANT_IDS || '')
+  .split(',')
+  .map(s => s.trim())
+  .filter(Boolean)
+  .map(id => id.replace(/\D/g, '')); // ensure numeric ID strings
+
 function computePrice(lengthM) {
   if (isNaN(lengthM) || lengthM <= 0) return { ok: false, error: 'Invalid length' };
   if (lengthM < 5.5 || lengthM > 15) return { ok: false, error: 'Out of supported range' };
@@ -27,11 +31,9 @@ function computePrice(lengthM) {
   else if (lengthM > 13 && lengthM <= 14)  price = basePrice + 330;
   else if (lengthM > 14 && lengthM <= 15)  price = basePrice + 380;
 
-  if (price == null) return { ok: false, error: 'No price tier found' };
   return { ok: true, price: Number(price.toFixed(2)) };
 }
 
-// Round-robin variant from pool
 let rrIndex = 0;
 function pickVariantId() {
   if (!VARIANT_POOL.length) throw new Error('No variant IDs in pool');
@@ -40,13 +42,12 @@ function pickVariantId() {
   return id;
 }
 
-// CORS for your storefront origin(s)
 app.use((req, res, next) => {
   const origin = req.headers.origin || '';
   const allowed = [
     /\.myshopify\.com$/i,
     /circusconcepts\.com$/i,
-    /\.shopifypreview\.com$/i, // theme preview
+    /\.shopifypreview\.com$/i
   ];
   if (allowed.some(rx => rx.test(origin))) {
     res.setHeader('Access-Control-Allow-Origin', origin);
@@ -58,13 +59,11 @@ app.use((req, res, next) => {
   next();
 });
 
-// POST /api/custom-price
 app.post('/api/custom-price', async (req, res) => {
   try {
     const { length_m, feet, inches } = req.body || {};
     let lengthM = Number(length_m);
 
-    // Support imperial input
     if ((!lengthM || isNaN(lengthM)) && (feet != null || inches != null)) {
       const f = Number(feet) || 0;
       const i = Number(inches) || 0;
@@ -79,7 +78,7 @@ app.post('/api/custom-price', async (req, res) => {
     const variantId = pickVariantId();
     const newPrice = result.price.toFixed(2);
 
-    // Update variant price via Admin API
+    // Update variant price
     const url = `https://${SHOP}/admin/api/2024-10/variants/${variantId}.json`;
     const apiRes = await fetch(url, {
       method: 'PUT',
@@ -87,7 +86,7 @@ app.post('/api/custom-price', async (req, res) => {
         'Content-Type': 'application/json',
         'X-Shopify-Access-Token': TOKEN
       },
-      body: JSON.stringify({ variant: { id: variantId, price: newPrice } })
+      body: JSON.stringify({ variant: { id: Number(variantId), price: newPrice } })
     });
 
     if (!apiRes.ok) {
@@ -97,7 +96,7 @@ app.post('/api/custom-price', async (req, res) => {
     }
 
     return res.json({
-      variantId,
+      variantId: Number(variantId),
       price: Number(newPrice),
       length_m: Number(lengthM.toFixed(3))
     });
