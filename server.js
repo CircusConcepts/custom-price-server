@@ -1,6 +1,7 @@
 import express from 'express';
 import fetch from 'node-fetch';
 import dotenv from 'dotenv';
+import cors from 'cors';
 
 dotenv.config();
 
@@ -10,6 +11,12 @@ app.use(express.json());
 const SHOP = process.env.SHOPIFY_SHOP;
 const TOKEN = process.env.SHOPIFY_ADMIN_TOKEN;
 const VARIANT_ID = '42383692988550';
+
+app.use(cors({
+  origin: ['https://www.circusconcepts.ca', 'https://circusconcepts.ca'], 
+  methods: ['GET','POST','OPTIONS'],
+  allowedHeaders: ['Content-Type', 'Authorization']
+}));
 
 // --- Price logic ---
 function computePrice(lengthM) {
