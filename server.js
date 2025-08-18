@@ -7,11 +7,11 @@ dotenv.config();
 const app = express();
 app.use(express.json());
 
-const SHOP = process.env.SHOPIFY_SHOP;          // myshopify.com domain (without https)
-const TOKEN = process.env.SHOPIFY_ADMIN_TOKEN;  // Shopify Admin API token
-const VARIANT_ID = '42383692988550';            // Your single variant ID
+const SHOP = process.env.SHOPIFY_SHOP;
+const TOKEN = process.env.SHOPIFY_ADMIN_TOKEN;
+const VARIANT_ID = '42383692988550';
 
-// Compute price based on length in meters
+// --- Price logic ---
 function computePrice(lengthM) {
   if (isNaN(lengthM) || lengthM <= 0) return { ok: false, error: 'Invalid length' };
   if (lengthM < 5.5 || lengthM > 15) return { ok: false, error: 'Out of supported range' };
@@ -31,7 +31,7 @@ function computePrice(lengthM) {
   return { ok: true, price: Number(price.toFixed(2)) };
 }
 
-// CORS
+// --- CORS ---
 app.use((req, res, next) => {
   const origin = req.headers.origin || '';
   const allowed = [
@@ -66,8 +66,8 @@ app.post('/api/custom-price', async (req, res) => {
 
     const newPrice = result.price.toFixed(2);
 
-    // Update variant price
-    const url = `https://${SHOP}/admin/api/2024-10/variants/${VARIANT_ID}.json`;
+    // --- Update variant price in Shopify ---
+    const url = `https://${SHOP}/admin/api/2025-01/variants/${VARIANT_ID}.json`;
     const apiRes = await fetch(url, {
       method: 'PUT',
       headers: {
