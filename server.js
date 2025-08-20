@@ -11,6 +11,13 @@ app.use(express.json());
 const SHOP = process.env.SHOPIFY_SHOP;
 const TOKEN = process.env.SHOPIFY_ADMIN_TOKEN;
 const VARIANT_ID = '42383692988550';
+const COLOR_VARIANT_IDS = [
+  '42391920115846',
+  '42391920148614',
+  '42391920181382',
+  '42391920214150',
+  '42391920246918'
+];
 
 app.use(cors({
   origin: ['https://www.circusconcepts.ca', 'https://circusconcepts.ca'], 
@@ -19,7 +26,7 @@ app.use(cors({
 }));
 
 // --- Price logic ---
-function computePrice(lengthM) {
+function computePrice(lengthM, isColorVariant = false) {
   if (isNaN(lengthM) || lengthM <= 0) return { ok: false, error: 'Invalid length' };
   if (lengthM < 5.5 || lengthM > 15) return { ok: false, error: 'Out of supported range' };
 
@@ -34,6 +41,10 @@ function computePrice(lengthM) {
   else if (lengthM > 12 && lengthM <= 13)  price = basePrice + 280;
   else if (lengthM > 13 && lengthM <= 14)  price = basePrice + 330;
   else if (lengthM > 14 && lengthM <= 15)  price = basePrice + 380;
+
+  if (isColorVariant) {
+    price += 60;
+  }
 
   return { ok: true, price: Number(price.toFixed(2)) };
 }
@@ -59,7 +70,7 @@ app.use((req, res, next) => {
 // --- POST /api/custom-price ---
 app.post('/api/custom-price', async (req, res) => {
   try {
-    const { length_m, feet, inches } = req.body || {};
+    const { length_m, feet, inches, variantId } = req.body || {};
     let lengthM = Number(length_m);
 
     if ((!lengthM || isNaN(lengthM)) && (feet != null || inches != null)) {
@@ -68,20 +79,23 @@ app.post('/api/custom-price', async (req, res) => {
       lengthM = f * 0.3048 + i * 0.0254;
     }
 
-    const result = computePrice(lengthM);
+    const isColorVariant = COLOR_VARIANT_IDS.includes(String(variantId));
+    const result = computePrice(lengthM, isColorVariant);
     if (!result.ok) return res.status(400).json({ error: result.error });
 
     const newPrice = result.price.toFixed(2);
 
+    const targetVariant = variantId || VARIANT_ID;
+
     // --- Update variant price in Shopify ---
-    const url = `https://${SHOP}/admin/api/2025-01/variants/${VARIANT_ID}.json`;
+    const url = `https://${SHOP}/admin/api/2025-01/variants/${targetVariant}.json`;
     const apiRes = await fetch(url, {
       method: 'PUT',
       headers: {
         'Content-Type': 'application/json',
         'X-Shopify-Access-Token': TOKEN
       },
-      body: JSON.stringify({ variant: { id: Number(VARIANT_ID), price: newPrice } })
+      body: JSON.stringify({ variant: { id: Number(targetVariant), price: newPrice } })
     });
 
     if (!apiRes.ok) {
@@ -91,7 +105,7 @@ app.post('/api/custom-price', async (req, res) => {
     }
 
     return res.json({
-      variantId: Number(VARIANT_ID),
+      variantId: Number(targetVariant),
       price: Number(newPrice),
       length_m: Number(lengthM.toFixed(3))
     });
